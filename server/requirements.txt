@@ -1,8 +1,9 @@
-fastapi>=0.115.0
-uvicorn>=0.30.0
-transformers>=4.40.0
-torch>=2.0.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
 PyJWT>=2.9.0
 bcrypt>=4.0.0
 python-multipart>=0.0.9
-safetensors>=0.4.0
+httpx>=0.25.0
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+cryptography>=41.0.0

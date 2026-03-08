@@ -4,3 +4,18 @@ dist/
 .env.local
 *.log
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+server/users.json
+server/mediflow_dev.db
+
+# ONNX build output (large files, don't commit)
+onnx_model/
+
+# HuggingFace Space model files (push separately to HF)
+huggingface_space/model.onnx
+huggingface_space/tokenizer.json
+huggingface_space/tokenizer_config.json

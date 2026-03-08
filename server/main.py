@@ -1,41 +1,40 @@
 """
-Healthcare Triage System — FastAPI Backend
-Serves the trained BERT triage model and handles JWT authentication.
+Healthcare Triage System — FastAPI Backend (Production)
+Uses MySQL for storage and HuggingFace Spaces for AI predictions.
 """
 
 import os
-import json
 import uuid
 import time
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import jwt
 import bcrypt
-import torch
-import numpy as np
+import httpx
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
-from transformers import BertTokenizer, BertForSequenceClassification
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from server.database import get_db, init_db
+from server.models import User, Prescription, Appointment
 
 # ─── Configuration ───────────────────────────────────────────
-MODEL_DIR = os.environ.get(
-    "MODEL_DIR",
-    os.path.join(os.path.expanduser("~"), "Desktop", "Code", "Claude Code", "AI_Triage_Model", "triage_model")
-)
-
-# Resolve to absolute path
-MODEL_DIR = str(Path(MODEL_DIR).resolve())
-
-JWT_SECRET = os.environ.get("JWT_SECRET", "mediflow-ai-secret-key-2024")
+JWT_SECRET = os.environ.get("JWT_SECRET", "mediflow-ai-secret-key-2024-change-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
-USERS_FILE = os.path.join(os.path.dirname(__file__), "users.json")
+# HuggingFace Spaces URL for the ONNX model
+HF_SPACE_URL = os.environ.get(
+    "HF_SPACE_URL",
+    "https://avi7061-mediflow-triage.hf.space"
+)
 
-# Label mappings (must match your training script)
-ID2LABEL = {0: "Red", 1: "Orange", 2: "Yellow", 3: "White"}
+# Frontend URL for CORS
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+
+# Label descriptions (used when HF Space returns prediction)
 LABEL_DESC = {
     "Red":    "🔴 Emergency — Immediate attention required",
     "Orange": "🟠 Urgent — See a doctor within 1-2 days",
@@ -44,73 +43,53 @@ LABEL_DESC = {
 }
 
 # ─── FastAPI App ─────────────────────────────────────────────
-app = FastAPI(title="MediFlow AI — Triage API", version="1.0.0")
+app = FastAPI(title="MediFlow AI — Triage API", version="2.0.0")
+
+# CORS — allow frontend origins
+allowed_origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    FRONTEND_URL,
+]
+# Also allow the Railway domain pattern
+if os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
+    allowed_origins.append(f"https://{os.environ['RAILWAY_PUBLIC_DOMAIN']}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ─── Model Loading ───────────────────────────────────────────
-print(f"\n{'='*60}")
-print(f"  MediFlow AI — Backend Server")
-print(f"{'='*60}")
-print(f"  Loading model from: {MODEL_DIR}")
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-try:
-    tokenizer = BertTokenizer.from_pretrained(MODEL_DIR)
-    model = BertForSequenceClassification.from_pretrained(MODEL_DIR)
-    model = model.to(device)
-    model.eval()
-    print(f"  ✅ Model loaded successfully on {device}")
-except Exception as e:
-    print(f"  ❌ Failed to load model: {e}")
-    print(f"  ⚠️  Prediction endpoint will return errors")
-    tokenizer = None
-    model = None
-
-print(f"{'='*60}\n")
-
-# ─── User Storage Helpers ────────────────────────────────────
-
-def load_users() -> list:
-    if not os.path.exists(USERS_FILE):
-        return []
-    with open(USERS_FILE, "r") as f:
-        return json.load(f)
-
-def save_users(users: list):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
-
-def find_user_by_email(email: str):
-    users = load_users()
-    for u in users:
-        if u["email"].lower() == email.lower():
-            return u
-    return None
+# ─── Startup ─────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup():
+    print(f"\n{'='*60}")
+    print(f"  MediFlow AI — Backend Server v2.0")
+    print(f"{'='*60}")
+    print(f"  HF Space URL  : {HF_SPACE_URL}")
+    print(f"  Frontend URL   : {FRONTEND_URL}")
+    init_db()
+    print(f"{'='*60}\n")
 
 # ─── JWT Helpers ─────────────────────────────────────────────
 
-def create_token(user: dict) -> str:
+def create_token(user_dict: dict) -> str:
     payload = {
-        "sub": user["id"],
-        "email": user["email"],
-        "name": user["name"],
-        "role": user["role"],
+        "sub": user_dict["id"],
+        "email": user_dict["email"],
+        "name": user_dict["name"],
+        "role": user_dict["role"],
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
@@ -131,124 +110,112 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str
-    role: str  # "patient" | "doctor" | "hospital_staff"
+    role: str
 
 class LoginRequest(BaseModel):
     email: str
     password: str
 
-# ─── Prediction Endpoint ─────────────────────────────────────
+class PrescriptionCreate(BaseModel):
+    patientId: str
+    patientName: str
+    symptoms: list
+    aiSuggestion: str
+    triageCategory: str
+
+class PrescriptionVerify(BaseModel):
+    notes: str
+    status: str  # approved | rejected
+
+class AppointmentCreate(BaseModel):
+    hospitalId: str
+    departmentName: str
+    slot: str
+
+# ─── Prediction Endpoint (calls HuggingFace Space) ───────────
 
 @app.post("/api/predict")
 async def predict(req: PredictRequest):
-    if model is None or tokenizer is None:
-        raise HTTPException(status_code=503, detail="Model not loaded. Check server logs.")
-
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     start_time = time.time()
 
-    # Tokenize
-    encoding = tokenizer(
-        req.text,
-        max_length=128,
-        padding="max_length",
-        truncation=True,
-        return_tensors="pt"
-    )
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{HF_SPACE_URL}/predict",
+                json={"text": req.text},
+            )
 
-    # Predict
-    with torch.no_grad():
-        outputs = model(
-            input_ids=encoding["input_ids"].to(device),
-            attention_mask=encoding["attention_mask"].to(device),
-            token_type_ids=encoding["token_type_ids"].to(device),
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Model API error: {response.text}"
+            )
+
+        result = response.json()
+        total_time = (time.time() - start_time) * 1000
+
+        return {
+            "prediction": result["prediction"],
+            "description": LABEL_DESC.get(result["prediction"], result.get("description", "")),
+            "confidence": result["confidence"],
+            "probabilities": result["probabilities"],
+            "inference_time_ms": round(total_time, 1),
+        }
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail="Cannot connect to model API. The HuggingFace Space may be sleeping — try again in a few seconds."
         )
-
-    probs = torch.softmax(outputs.logits, dim=1).cpu().numpy()[0]
-    pred_id = int(np.argmax(probs))
-    pred_label = ID2LABEL[pred_id]
-    confidence = float(probs[pred_id])
-
-    inference_time = time.time() - start_time
-
-    return {
-        "prediction": pred_label,
-        "description": LABEL_DESC[pred_label],
-        "confidence": round(confidence * 100, 1),
-        "probabilities": {
-            ID2LABEL[i]: round(float(p) * 100, 1)
-            for i, p in enumerate(probs)
-        },
-        "inference_time_ms": round(inference_time * 1000, 1),
-    }
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail="Model API timed out. The HuggingFace Space may be cold-starting — try again in 30 seconds."
+        )
 
 # ─── Auth Endpoints ──────────────────────────────────────────
 
 @app.post("/api/auth/register")
-async def register(req: RegisterRequest):
-    # Validate role
+async def register(req: RegisterRequest, db: Session = Depends(get_db)):
     if req.role not in ("patient", "doctor", "hospital_staff"):
-        raise HTTPException(status_code=400, detail="Invalid role. Must be: patient, doctor, or hospital_staff")
+        raise HTTPException(status_code=400, detail="Invalid role")
 
-    # Check if email already exists
-    if find_user_by_email(req.email):
+    existing = db.query(User).filter(User.email == req.email.lower()).first()
+    if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    # Validate password length
     if len(req.password) < 4:
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
 
-    # Hash password
     hashed = bcrypt.hashpw(req.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-    # Create user
-    user = {
-        "id": str(uuid.uuid4()),
-        "email": req.email.lower(),
-        "name": req.name,
-        "role": req.role,
-        "password_hash": hashed,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    user = User(
+        id=str(uuid.uuid4()),
+        email=req.email.lower(),
+        name=req.name,
+        role=req.role,
+        password_hash=hashed,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
-    users = load_users()
-    users.append(user)
-    save_users(users)
-
-    # Return token
-    token = create_token(user)
-    return {
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "name": user["name"],
-            "role": user["role"],
-        }
-    }
+    token = create_token(user.to_dict())
+    return {"token": token, "user": user.to_dict()}
 
 @app.post("/api/auth/login")
-async def login(req: LoginRequest):
-    user = find_user_by_email(req.email)
+async def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email.lower()).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Verify password
-    if not bcrypt.checkpw(req.password.encode("utf-8"), user["password_hash"].encode("utf-8")):
+    if not bcrypt.checkpw(req.password.encode("utf-8"), user.password_hash.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_token(user)
-    return {
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "name": user["name"],
-            "role": user["role"],
-        }
-    }
+    token = create_token(user.to_dict())
+    return {"token": token, "user": user.to_dict()}
 
 @app.get("/api/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -261,15 +228,116 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         }
     }
 
+# ─── Prescriptions ───────────────────────────────────────────
+
+@app.get("/api/prescriptions")
+async def list_prescriptions(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Prescription)
+    if current_user["role"] == "patient":
+        query = query.filter(Prescription.patient_id == current_user["sub"])
+    # Doctors/hospital see all
+    rxs = query.order_by(Prescription.created_at.desc()).all()
+    return [rx.to_dict() for rx in rxs]
+
+@app.post("/api/prescriptions")
+async def create_prescription(
+    req: PrescriptionCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rx = Prescription(
+        id=str(uuid.uuid4()),
+        patient_id=req.patientId,
+        patient_name=req.patientName,
+        symptoms=req.symptoms,
+        ai_suggestion=req.aiSuggestion,
+        triage_category=req.triageCategory,
+    )
+    db.add(rx)
+    db.commit()
+    db.refresh(rx)
+    return rx.to_dict()
+
+@app.patch("/api/prescriptions/{rx_id}/verify")
+async def verify_prescription(
+    rx_id: str,
+    req: PrescriptionVerify,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user["role"] != "doctor":
+        raise HTTPException(status_code=403, detail="Only doctors can verify prescriptions")
+
+    rx = db.query(Prescription).filter(Prescription.id == rx_id).first()
+    if not rx:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+
+    rx.verified = True
+    rx.status = req.status
+    rx.doctor_notes = req.notes
+    db.commit()
+    db.refresh(rx)
+    return rx.to_dict()
+
+# ─── Appointments ─────────────────────────────────────────────
+
+@app.get("/api/appointments")
+async def list_appointments(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Appointment)
+    if current_user["role"] == "patient":
+        query = query.filter(Appointment.patient_id == current_user["sub"])
+    appts = query.order_by(Appointment.created_at.desc()).all()
+    return [a.to_dict() for a in appts]
+
+@app.post("/api/appointments")
+async def create_appointment(
+    req: AppointmentCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    appt = Appointment(
+        id=str(uuid.uuid4()),
+        patient_id=current_user["sub"],
+        hospital_id=req.hospitalId,
+        department_name=req.departmentName,
+        slot=req.slot,
+    )
+    db.add(appt)
+    db.commit()
+    db.refresh(appt)
+    return appt.to_dict()
+
 # ─── Health Check ────────────────────────────────────────────
+
 @app.get("/api/health")
 async def health():
     return {
         "status": "ok",
-        "model_loaded": model is not None,
-        "device": str(device),
+        "version": "2.0.0",
+        "hf_space": HF_SPACE_URL,
     }
+
+# ─── Serve Static Frontend (Production) ─────────────────────
+# In production, the React build output is at ../dist/
+dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dist")
+if os.path.exists(dist_path):
+    from starlette.responses import FileResponse
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        """Serve React SPA — all non-API routes go to index.html"""
+        file_path = os.path.join(dist_path, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(dist_path, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

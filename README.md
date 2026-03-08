@@ -1,196 +1,99 @@
-# 🏥 MediFlow AI — Healthcare Triage System
+# MediFlow AI — Healthcare Triage System
 
-An **AI-powered healthcare triage application** that uses a fine-tuned **BERT deep learning model** to classify patient symptoms into urgency levels, enabling faster decision-making and reducing hospital overcrowding.
+AI-powered triage using a trained BERT deep learning model, real-time hospital rush tracking, and seamless doctor-patient connectivity.
 
-![React](https://img.shields.io/badge/React-19-blue?logo=react)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green?logo=fastapi)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red?logo=pytorch)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.1-blue?logo=tailwindcss)
-
----
-
-## 🌟 Features
-
-### 🤖 AI-Powered Triage
-- Fine-tuned **BERT (Bidirectional Encoder Representations from Transformers)** model for medical symptom classification
-- Real-time inference with confidence scores and probability distributions
-- **4-level triage classification:**
-  - 🔴 **Red — Emergency:** Immediate attention required
-  - 🟠 **Orange — Urgent:** See a doctor within 1–2 days
-  - 🟡 **Yellow — Semi-urgent:** Schedule within 1 week
-  - ⚪ **White — Home Care:** Rest and self-care recommended
-
-### 👥 Multi-Role System
-- **Patients** — Check symptoms via AI, view triage results, find nearby hospitals
-- **Doctors** — Review AI-generated prescriptions, verify and approve patient cases
-- **Hospital Admins** — Monitor hospital rush status and manage departments
-
-### 🔐 Secure Authentication
-- JWT-based authentication with role-based access control
-- Bcrypt password hashing
-- Protected routes per user role
-
-### 💡 Modern UI/UX
-- Responsive design with Tailwind CSS
-- Smooth animations with Framer Motion
-- Clean, medical-grade interface with Lucide icons
-
----
-
-## 🏗️ Tech Stack
-
-| Layer       | Technology                          |
-|-------------|-------------------------------------|
-| **Frontend** | React 19, TypeScript, Vite          |
-| **Styling**  | Tailwind CSS 4.1, Framer Motion     |
-| **Backend**  | FastAPI, Uvicorn                    |
-| **AI Model** | BERT (HuggingFace Transformers), PyTorch |
-| **Auth**     | JWT (PyJWT), Bcrypt                 |
-| **Icons**    | Lucide React                        |
-
----
-
-## 📁 Project Structure
+## 🏗 Architecture
 
 ```
-AI_triage_App/
-├── index.html                  # Entry point
-├── package.json                # Frontend dependencies
-├── vite.config.ts              # Vite configuration
-├── tsconfig.json               # TypeScript configuration
-├── server/
-│   ├── main.py                 # FastAPI backend (model serving + auth)
-│   ├── requirements.txt        # Python dependencies
-│   └── users.json              # User storage (JSON-based)
-└── src/
-    ├── main.tsx                # React entry
-    ├── App.tsx                 # Routes & app structure
-    ├── index.css               # Global styles
-    ├── components/
-    │   ├── Layout.tsx          # App layout wrapper
-    │   └── ProtectedRoute.tsx  # Role-based route guard
-    ├── context/
-    │   ├── AuthContext.tsx      # Authentication state
-    │   └── AppContext.tsx       # Application state
-    ├── pages/
-    │   ├── Landing.tsx         # Landing page with role selection
-    │   ├── auth/
-    │   │   ├── LoginPage.tsx   # Login form
-    │   │   └── RegisterPage.tsx # Registration form
-    │   ├── patient/
-    │   │   ├── PatientDashboard.tsx  # Patient home
-    │   │   ├── SymptomChecker.tsx    # AI symptom analysis
-    │   │   ├── TriageResult.tsx      # Triage results display
-    │   │   └── HospitalList.tsx      # Nearby hospitals
-    │   ├── doctor/
-    │   │   └── DoctorDashboard.tsx   # Doctor review panel
-    │   └── hospital/
-    │       └── HospitalAdmin.tsx     # Hospital admin panel
-    ├── services/
-    │   └── api.ts              # API client (backend calls)
-    └── utils/
-        └── cn.ts               # Tailwind class merge utility
+┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────────┐
+│  React Frontend │────▶│  FastAPI Backend      │────▶│  HuggingFace Spaces │
+│  (Vite + TW)    │     │  (Railway + MySQL)    │     │  (ONNX BERT Model)  │
+└─────────────────┘     └──────────────────────┘     └─────────────────────┘
 ```
 
----
+## 🚀 Local Development
 
-## 🚀 Getting Started
-
-### Prerequisites
-- **Node.js** ≥ 18
-- **Python** ≥ 3.10
-- **Trained BERT triage model** (saved via HuggingFace `save_pretrained()`)
-
-### 1. Clone the Repository
-
+### 1. Install Dependencies
 ```bash
-git clone https://github.com/Avinash7061/AI_triage_App.git
-cd AI_triage_App
+npm install                                    # Frontend
+pip install -r server/requirements.txt         # Backend
 ```
 
-### 2. Setup Frontend
-
+### 2. Start the Model Server (Port 7860)
 ```bash
-npm install
+cd huggingface_space && python3 app.py
+```
+
+### 3. Start the Backend (Port 8000)
+```bash
+python3 -m uvicorn server.main:app --host 0.0.0.0 --port 8000
+```
+
+### 4. Start the Frontend (Port 5173)
+```bash
 npm run dev
 ```
 
-The frontend will run at `http://localhost:5173`.
+Open **http://localhost:5173** — register an account and try the triage!
 
-### 3. Setup Backend
+---
 
+## ☁️ Deployment
+
+### Step 1: Deploy Model to HuggingFace Spaces
+
+1. Create a new Space at [huggingface.co/new-space](https://huggingface.co/new-space)
+   - SDK: **Docker**
+   - Name: `mediflow-triage`
+2. Push the `huggingface_space/` folder:
 ```bash
-cd server
-pip install -r requirements.txt
+cd huggingface_space
+git init
+git remote add origin https://huggingface.co/spaces/YOUR_USERNAME/mediflow-triage
+git add .
+git commit -m "Initial deploy"
+git push -u origin main
 ```
+3. Wait for the Space to build. Note the URL (e.g., `https://YOUR_USERNAME-mediflow-triage.hf.space`)
 
-Set the model directory (default: `~/Desktop/Code/Claude Code/AI_Triage_Model/triage_model`):
+### Step 2: Deploy to Railway
 
-```bash
-export MODEL_DIR="/path/to/your/triage_model"
-```
+1. Push this repo to GitHub
+2. Create a new project at [railway.app](https://railway.app)
+3. Add a **MySQL** plugin to your project
+4. Link your GitHub repo
+5. Set environment variables:
+   - `JWT_SECRET` → a strong random string
+   - `HF_SPACE_URL` → your HuggingFace Space URL
+   - `VITE_API_URL` → leave **empty** (same-origin in production)
+   - `DATABASE_URL` → auto-provided by Railway MySQL plugin
 
-Start the backend server:
-
-```bash
-python main.py
-```
-
-The API will run at `http://localhost:8000`.
-
----
-
-## 🔌 API Endpoints
-
-| Method | Endpoint             | Description                     | Auth Required |
-|--------|----------------------|---------------------------------|---------------|
-| POST   | `/api/predict`       | Predict triage level from text  | No            |
-| POST   | `/api/auth/register` | Register a new user             | No            |
-| POST   | `/api/auth/login`    | Login and receive JWT token     | No            |
-| GET    | `/api/auth/me`       | Get current user info           | Yes (Bearer)  |
-| GET    | `/api/health`        | Health check + model status     | No            |
+Railway will auto-deploy on every push.
 
 ---
 
-## 🧠 How the AI Triage Works
+## 🔒 Environment Variables
 
-1. **Patient selects symptoms** from a pre-defined list or types a free-text description
-2. Symptoms are sent to the **FastAPI backend**
-3. The text is tokenized and passed through the **fine-tuned BERT model**
-4. The model outputs **probabilities for 4 triage categories**
-5. The highest-confidence category is returned with:
-   - Triage level (Red/Orange/Yellow/White)
-   - Confidence percentage
-   - Full probability distribution
-   - Inference time
-
----
-
-## 📸 Triage Categories
-
-| Category | Level        | Action                              |
-|----------|--------------|-------------------------------------|
-| 🔴 Red   | Emergency    | Go to nearest ER immediately        |
-| 🟠 Orange | Urgent       | Visit a doctor within 24–48 hours   |
-| 🟡 Yellow | Semi-urgent  | AI generates prescription for review|
-| ⚪ White  | Home Care    | Rest, hydrate, and self-care        |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | MySQL connection string | Railway auto-provides |
+| `JWT_SECRET` | Secret key for JWT tokens | Yes |
+| `HF_SPACE_URL` | HuggingFace Spaces model URL | Yes |
+| `FRONTEND_URL` | Frontend URL for CORS | Optional |
+| `VITE_API_URL` | Backend URL for frontend | Dev only |
+| `PORT` | Server port | Railway auto-provides |
 
 ---
 
-## 🤝 Contributing
+## 🧠 Model
 
-Contributions are welcome! Feel free to open issues or submit pull requests.
+- **Architecture**: BERT (bert-base-uncased) fine-tuned for 4-class triage
+- **Categories**: 🔴 Red (Emergency) | 🟠 Orange (Urgent) | 🟡 Yellow (Semi-urgent) | ⚪ White (Home care)
+- **Format**: ONNX (optimized for CPU inference)
+- **Size**: ~418MB (model + weights)
 
----
+## 👥 User Roles
 
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
----
-
-## 👨‍💻 Author
-
-**Avinash Kumar Jha**  
-GitHub: [@Avinash7061](https://github.com/Avinash7061)
+- **Patient**: Check symptoms, get AI triage, find hospitals
+- **Doctor**: View patient prescriptions, verify AI-generated prescriptions
+- **Hospital Admin**: Manage department rush and capacity
