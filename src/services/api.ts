@@ -1,140 +1,219 @@
 /**
- * Centralized API client for the MediFlow AI backend.
- * Handles JWT token attachment and all API calls.
- * API_BASE reads from VITE_API_URL env var for production deployment.
+ * API client for MediFlow AI backend
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-// When API_BASE is empty string, API calls go to same origin (production)
-// When set to 'http://localhost:8000', calls go to local dev server
-
-// ─── Helper ─────────────────────────────────────────────────
-
-async function apiFetch(path: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('mediflow_token');
-  
+function getHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
   };
-
+  const token = localStorage.getItem('token');
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
+  return headers;
+}
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
-
-  const data = await res.json();
-
+async function handleResponse(res: Response) {
   if (!res.ok) {
-    throw new Error(data.detail || `API Error ${res.status}`);
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || 'Request failed');
   }
-
-  return data;
+  return res.json();
 }
 
-// ─── Auth API ───────────────────────────────────────────────
+// ─── Auth ──────────────────────────────────────────────────
 
-export interface AuthUser {
-  id: string;
+export async function register(data: {
   email: string;
+  password: string;
   name: string;
-  role: 'patient' | 'doctor' | 'hospital_staff';
-}
-
-export interface AuthResponse {
-  token: string;
-  user: AuthUser;
-}
-
-export async function apiRegister(
-  email: string, password: string, name: string, role: string
-): Promise<AuthResponse> {
-  return apiFetch('/api/auth/register', {
+  role: string;
+  hospitalName?: string;
+  hospitalLocation?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/auth/register`, {
     method: 'POST',
-    body: JSON.stringify({ email, password, name, role }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   });
+  return handleResponse(res);
 }
 
-export async function apiLogin(
-  email: string, password: string
-): Promise<AuthResponse> {
-  return apiFetch('/api/auth/login', {
+export async function login(email: string, password: string) {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
+  return handleResponse(res);
 }
 
-export async function apiGetMe(): Promise<{ user: AuthUser }> {
-  return apiFetch('/api/auth/me');
+export async function getMe() {
+  const res = await fetch(`${API_BASE}/api/auth/me`, { headers: getHeaders() });
+  return handleResponse(res);
 }
 
-// ─── Triage Prediction API ──────────────────────────────────
+// ─── Predictions ────────────────────────────────────────────
 
-export interface PredictionResult {
-  prediction: string;
-  description: string;
-  confidence: number;
-  probabilities: Record<string, number>;
-  inference_time_ms: number;
-}
-
-export async function apiPredict(text: string): Promise<PredictionResult> {
-  return apiFetch('/api/predict', {
+export async function predict(text: string) {
+  const res = await fetch(`${API_BASE}/api/predict`, {
     method: 'POST',
+    headers: getHeaders(),
     body: JSON.stringify({ text }),
   });
+  return handleResponse(res);
 }
 
-// ─── Prescriptions API ──────────────────────────────────────
+// ─── Hospitals (Public) ─────────────────────────────────────
 
-export async function apiGetPrescriptions() {
-  return apiFetch('/api/prescriptions');
+export async function getHospitals() {
+  const res = await fetch(`${API_BASE}/api/hospitals`, { headers: getHeaders() });
+  return handleResponse(res);
 }
 
-export async function apiCreatePrescription(data: {
+// ─── My Hospital (Staff) ────────────────────────────────────
+
+export async function getMyHospital() {
+  const res = await fetch(`${API_BASE}/api/hospitals/mine`, { headers: getHeaders() });
+  return handleResponse(res);
+}
+
+export async function updateMyHospital(data: {
+  name?: string;
+  location?: string;
+  emergencyAvailable?: boolean;
+}) {
+  const res = await fetch(`${API_BASE}/api/hospitals/mine`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}
+
+// ─── Departments ────────────────────────────────────────────
+
+export async function addDepartment(data: { name: string; capacity: number }) {
+  const res = await fetch(`${API_BASE}/api/hospitals/mine/departments`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}
+
+export async function updateRush(departmentId: string, change: number) {
+  const res = await fetch(`${API_BASE}/api/departments/${departmentId}/rush`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify({ change }),
+  });
+  return handleResponse(res);
+}
+
+export async function deleteDepartment(departmentId: string) {
+  const res = await fetch(`${API_BASE}/api/departments/${departmentId}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  return handleResponse(res);
+}
+
+// ─── Patient Records ────────────────────────────────────────
+
+export async function getPatientRecords(status?: string) {
+  const params = status ? `?status=${status}` : '';
+  const res = await fetch(`${API_BASE}/api/patient-records${params}`, {
+    headers: getHeaders(),
+  });
+  return handleResponse(res);
+}
+
+export async function admitPatient(data: {
+  patientName: string;
+  age?: number;
+  gender?: string;
+  symptoms?: string[];
+  triageCategory?: string;
+  roomNumber?: string;
+  departmentId?: string;
+  notes?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/patient-records`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}
+
+export async function updatePatientRecord(
+  recordId: string,
+  data: {
+    status?: string;
+    roomNumber?: string;
+    notes?: string;
+    departmentId?: string;
+    triageCategory?: string;
+  }
+) {
+  const res = await fetch(`${API_BASE}/api/patient-records/${recordId}`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse(res);
+}
+
+// ─── Prescriptions ──────────────────────────────────────────
+
+export async function getPrescriptions() {
+  const res = await fetch(`${API_BASE}/api/prescriptions`, { headers: getHeaders() });
+  return handleResponse(res);
+}
+
+export async function createPrescription(data: {
   patientId: string;
   patientName: string;
   symptoms: string[];
   aiSuggestion: string;
   triageCategory: string;
 }) {
-  return apiFetch('/api/prescriptions', {
+  const res = await fetch(`${API_BASE}/api/prescriptions`, {
     method: 'POST',
+    headers: getHeaders(),
     body: JSON.stringify(data),
   });
+  return handleResponse(res);
 }
 
-export async function apiVerifyPrescription(id: string, notes: string, status: string) {
-  return apiFetch(`/api/prescriptions/${id}/verify`, {
+export async function verifyPrescription(rxId: string, data: { notes: string; status: string }) {
+  const res = await fetch(`${API_BASE}/api/prescriptions/${rxId}/verify`, {
     method: 'PATCH',
-    body: JSON.stringify({ notes, status }),
+    headers: getHeaders(),
+    body: JSON.stringify(data),
   });
+  return handleResponse(res);
 }
 
-// ─── Appointments API ───────────────────────────────────────
+// ─── Appointments ───────────────────────────────────────────
 
-export async function apiGetAppointments() {
-  return apiFetch('/api/appointments');
+export async function getAppointments() {
+  const res = await fetch(`${API_BASE}/api/appointments`, { headers: getHeaders() });
+  return handleResponse(res);
 }
 
-export async function apiCreateAppointment(data: {
+export async function createAppointment(data: {
   hospitalId: string;
   departmentName: string;
   slot: string;
 }) {
-  return apiFetch('/api/appointments', {
+  const res = await fetch(`${API_BASE}/api/appointments`, {
     method: 'POST',
+    headers: getHeaders(),
     body: JSON.stringify(data),
   });
-}
-
-// ─── Health Check ───────────────────────────────────────────
-
-export async function apiHealth() {
-  return apiFetch('/api/health');
+  return handleResponse(res);
 }

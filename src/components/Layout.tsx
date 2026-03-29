@@ -42,7 +42,9 @@ export function Layout() {
             )}
             {displayRole === 'hospital_staff' && (
               <>
-                <Link to="/hospital/admin" className="text-sm font-medium hover:text-blue-600">Rush Admin</Link>
+                <Link to="/hospital/admin" className="text-sm font-medium hover:text-blue-600">Dashboard</Link>
+                <Link to="/hospital/patients" className="text-sm font-medium hover:text-blue-600">Patient Records</Link>
+                <Link to="/hospital/settings" className="text-sm font-medium hover:text-blue-600">Settings</Link>
               </>
             )}
             

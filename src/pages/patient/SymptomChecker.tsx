@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp, TriageCategory } from '@/context/AppContext';
-import { apiPredict } from '@/services/api';
+import { predict as apiPredict } from '@/services/api';
 import { Stethoscope, Brain, AlertCircle } from 'lucide-react';
 
 const COMMON_SYMPTOMS = [

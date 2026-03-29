@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { Activity, Mail, Lock, Eye, EyeOff, User as UserIcon, Stethoscope, Building2, UserPlus } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Activity, Mail, Lock, Eye, EyeOff, User as UserIcon, Stethoscope, Building2, UserPlus, MapPin } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const ROLES = [
   { value: 'patient', label: 'Patient', icon: UserIcon, color: 'blue' },
@@ -25,6 +25,10 @@ export function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // Hospital-specific fields
+  const [hospitalName, setHospitalName] = useState('');
+  const [hospitalLocation, setHospitalLocation] = useState('');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -39,10 +43,22 @@ export function RegisterPage() {
       return;
     }
 
+    if (selectedRole === 'hospital_staff' && (!hospitalName || !hospitalLocation)) {
+      setError('Hospital name and location are required');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await register(email, password, name, selectedRole);
+      await register(
+        email,
+        password,
+        name,
+        selectedRole,
+        selectedRole === 'hospital_staff' ? hospitalName : undefined,
+        selectedRole === 'hospital_staff' ? hospitalLocation : undefined
+      );
       const routes: Record<string, string> = {
         patient: '/patient/dashboard',
         doctor: '/doctor/dashboard',
@@ -119,11 +135,55 @@ export function RegisterPage() {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Dr. John Smith"
+                placeholder={selectedRole === 'hospital_staff' ? 'Admin Name' : 'John Smith'}
                 className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all bg-slate-50 focus:bg-white"
               />
             </div>
           </div>
+
+          {/* Hospital Fields — show only for hospital_staff */}
+          <AnimatePresence>
+            {selectedRole === 'hospital_staff' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-5 overflow-hidden"
+              >
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Hospital Name</label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                    <input
+                      id="register-hospital-name"
+                      type="text"
+                      required
+                      value={hospitalName}
+                      onChange={(e) => setHospitalName(e.target.value)}
+                      placeholder="City General Hospital"
+                      className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Hospital Location</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                    <input
+                      id="register-hospital-location"
+                      type="text"
+                      required
+                      value={hospitalLocation}
+                      onChange={(e) => setHospitalLocation(e.target.value)}
+                      placeholder="123 Main St, City, State"
+                      className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>

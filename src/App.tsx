@@ -13,6 +13,8 @@ import { TriageResult } from '@/pages/patient/TriageResult';
 import { HospitalList } from '@/pages/patient/HospitalList';
 import { DoctorDashboard } from '@/pages/doctor/DoctorDashboard';
 import { HospitalAdmin } from '@/pages/hospital/HospitalAdmin';
+import { PatientRecords } from '@/pages/hospital/PatientRecords';
+import { HospitalSettings } from '@/pages/hospital/HospitalSettings';
 
 export function App() {
   return (
@@ -65,6 +67,16 @@ export function App() {
               <Route path="hospital/admin" element={
                 <ProtectedRoute allowedRoles={['hospital_staff']}>
                   <HospitalAdmin />
+                </ProtectedRoute>
+              } />
+              <Route path="hospital/patients" element={
+                <ProtectedRoute allowedRoles={['hospital_staff']}>
+                  <PatientRecords />
+                </ProtectedRoute>
+              } />
+              <Route path="hospital/settings" element={
+                <ProtectedRoute allowedRoles={['hospital_staff']}>
+                  <HospitalSettings />
                 </ProtectedRoute>
               } />
               

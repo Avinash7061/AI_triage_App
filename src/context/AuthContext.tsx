@@ -1,12 +1,27 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { apiLogin, apiRegister, apiGetMe, AuthUser } from '@/services/api';
+import { login as apiLogin, register as apiRegister, getMe as apiGetMe } from '@/services/api';
+
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  hospitalId?: string;
+}
 
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, role: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    name: string,
+    role: string,
+    hospitalName?: string,
+    hospitalLocation?: string
+  ) => Promise<void>;
   logout: () => void;
   error: string | null;
   clearError: () => void;
@@ -19,16 +34,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Restore session on mount
   useEffect(() => {
     const token = localStorage.getItem('mediflow_token');
     if (token) {
+      // Set it for the api.ts getHeaders() which reads from 'token'
+      localStorage.setItem('token', token);
       apiGetMe()
-        .then((data) => {
-          setUser(data.user);
-        })
+        .then((data) => setUser(data.user))
         .catch(() => {
           localStorage.removeItem('mediflow_token');
+          localStorage.removeItem('token');
         })
         .finally(() => setIsLoading(false));
     } else {
@@ -36,11 +51,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const loginFn = async (email: string, password: string) => {
     setError(null);
     try {
       const data = await apiLogin(email, password);
       localStorage.setItem('mediflow_token', data.token);
+      localStorage.setItem('token', data.token);
       setUser(data.user);
     } catch (err: any) {
       setError(err.message || 'Login failed');
@@ -48,11 +64,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const register = async (email: string, password: string, name: string, role: string) => {
+  const registerFn = async (
+    email: string,
+    password: string,
+    name: string,
+    role: string,
+    hospitalName?: string,
+    hospitalLocation?: string
+  ) => {
     setError(null);
     try {
-      const data = await apiRegister(email, password, name, role);
+      const data = await apiRegister({
+        email,
+        password,
+        name,
+        role,
+        hospitalName,
+        hospitalLocation,
+      });
       localStorage.setItem('mediflow_token', data.token);
+      localStorage.setItem('token', data.token);
       setUser(data.user);
     } catch (err: any) {
       setError(err.message || 'Registration failed');
@@ -62,6 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     localStorage.removeItem('mediflow_token');
+    localStorage.removeItem('token');
     setUser(null);
   };
 
@@ -72,8 +104,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       user,
       isAuthenticated: !!user,
       isLoading,
-      login,
-      register,
+      login: loginFn,
+      register: registerFn,
       logout,
       error,
       clearError,
